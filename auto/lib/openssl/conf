@@ -145,6 +145,11 @@ else
             CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
             OPENSSL=YES
 
+            ngx_feature="OpenSSL trust anchor identifiers"
+            ngx_feature_name="NGX_SSL_TRUST_ANCHORS"
+            ngx_feature_test="SSL_CTX_add1_credential(NULL, NULL)"
+            . auto/feature
+
             if [ $USE_OPENSSL_QUIC = YES ]; then
 
                 ngx_feature="OpenSSL QUIC API"

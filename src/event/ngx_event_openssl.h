@@ -238,6 +238,15 @@ ngx_int_t ngx_ssl_certificates(ngx_conf_t *cf, ngx_ssl_t *ssl,
     ngx_array_t *certs, ngx_array_t *keys, ngx_array_t *passwords);
 ngx_int_t ngx_ssl_certificate(ngx_conf_t *cf, ngx_ssl_t *ssl,
     ngx_str_t *cert, ngx_str_t *key, ngx_array_t *passwords);
+#if (NGX_SSL_TRUST_ANCHORS)
+
+#define NGX_SSL_TAI_PREFERENCE_SIZE    0
+#define NGX_SSL_TAI_PREFERENCE_CONFIG  1
+
+ngx_int_t ngx_ssl_tai_certificates(ngx_conf_t *cf, ngx_ssl_t *ssl,
+    ngx_array_t *certs, ngx_array_t *keys, ngx_array_t *passwords,
+    ngx_uint_t preference);
+#endif
 ngx_int_t ngx_ssl_connection_certificate(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *cert, ngx_str_t *key, ngx_ssl_cache_t *cache,
     ngx_array_t *passwords);

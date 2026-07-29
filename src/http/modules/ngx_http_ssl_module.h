@@ -36,6 +36,12 @@ typedef struct {
     ngx_array_t                    *certificates;
     ngx_array_t                    *certificate_keys;
 
+#if (NGX_SSL_TRUST_ANCHORS)
+    ngx_array_t                    *tai_certificates;
+    ngx_array_t                    *tai_certificate_keys;
+    ngx_uint_t                      tai_preference;
+#endif
+
     ngx_array_t                    *certificate_values;
     ngx_array_t                    *certificate_key_values;
 

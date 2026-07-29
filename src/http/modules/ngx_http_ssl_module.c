@@ -90,6 +90,17 @@ static ngx_conf_enum_t  ngx_http_ssl_ocsp[] = {
 };
 
 
+#if (NGX_SSL_TRUST_ANCHORS)
+
+static ngx_conf_enum_t  ngx_http_ssl_tai_preference[] = {
+    { ngx_string("size"), NGX_SSL_TAI_PREFERENCE_SIZE },
+    { ngx_string("config"), NGX_SSL_TAI_PREFERENCE_CONFIG },
+    { ngx_null_string, 0 }
+};
+
+#endif
+
+
 static ngx_conf_post_t  ngx_http_ssl_conf_command_post =
     { ngx_http_ssl_conf_command_check };
 
@@ -110,6 +121,31 @@ static ngx_command_t  ngx_http_ssl_commands[] = {
       offsetof(ngx_http_ssl_srv_conf_t, certificate_keys),
       NULL },
 
+
+#if (NGX_SSL_TRUST_ANCHORS)
+
+    { ngx_string("ssl_tai_certificate"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_array_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, tai_certificates),
+      NULL },
+
+    { ngx_string("ssl_tai_certificate_key"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_array_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, tai_certificate_keys),
+      NULL },
+
+    { ngx_string("ssl_tai_certificate_preference"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_enum_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, tai_preference),
+      &ngx_http_ssl_tai_preference },
+
+#endif
     { ngx_string("ssl_certificate_cache"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE123,
       ngx_http_ssl_certificate_cache,
@@ -659,6 +695,11 @@ ngx_http_ssl_create_srv_conf(ngx_conf_t *cf)
     sscf->verify_depth = NGX_CONF_UNSET_UINT;
     sscf->certificates = NGX_CONF_UNSET_PTR;
     sscf->certificate_keys = NGX_CONF_UNSET_PTR;
+#if (NGX_SSL_TRUST_ANCHORS)
+    sscf->tai_certificates = NGX_CONF_UNSET_PTR;
+    sscf->tai_certificate_keys = NGX_CONF_UNSET_PTR;
+    sscf->tai_preference = NGX_CONF_UNSET_UINT;
+#endif
     sscf->certificate_cache = NGX_CONF_UNSET_PTR;
     sscf->ech_files = NGX_CONF_UNSET_PTR;
     sscf->passwords = NGX_CONF_UNSET_PTR;
@@ -708,6 +749,15 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_ptr_value(conf->certificates, prev->certificates, NULL);
     ngx_conf_merge_ptr_value(conf->certificate_keys, prev->certificate_keys,
                          NULL);
+
+#if (NGX_SSL_TRUST_ANCHORS)
+    ngx_conf_merge_ptr_value(conf->tai_certificates, prev->tai_certificates,
+                         NULL);
+    ngx_conf_merge_ptr_value(conf->tai_certificate_keys,
+                         prev->tai_certificate_keys, NULL);
+    ngx_conf_merge_uint_value(conf->tai_preference, prev->tai_preference,
+                         NGX_SSL_TAI_PREFERENCE_SIZE);
+#endif
 
     ngx_conf_merge_ptr_value(conf->certificate_cache, prev->certificate_cache,
                          NULL);
@@ -843,6 +893,27 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
             return NGX_CONF_ERROR;
         }
     }
+
+#if (NGX_SSL_TRUST_ANCHORS)
+
+    /*
+     * Trust anchor credentials are independent of the certificate above,
+     * which remains the one served when a client requests no trust anchor
+     * this server has a credential for.
+     */
+
+    if (conf->tai_certificates) {
+
+        if (ngx_ssl_tai_certificates(cf, &conf->ssl, conf->tai_certificates,
+                                     conf->tai_certificate_keys,
+                                     conf->passwords, conf->tai_preference)
+            != NGX_OK)
+        {
+            return NGX_CONF_ERROR;
+        }
+    }
+
+#endif
 
     conf->ssl.buffer_size = conf->buffer_size;
 

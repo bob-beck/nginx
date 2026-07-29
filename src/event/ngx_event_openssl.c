@@ -632,6 +632,132 @@ retry:
 }
 
 
+#if (NGX_SSL_TRUST_ANCHORS)
+
+ngx_int_t
+ngx_ssl_tai_certificates(ngx_conf_t *cf, ngx_ssl_t *ssl, ngx_array_t *certs,
+    ngx_array_t *keys, ngx_array_t *passwords, ngx_uint_t preference)
+{
+    BIO                       *bio;
+    char                      *err;
+    EVP_PKEY                  *pkey;
+    ngx_str_t                 *cert, *key;
+    ngx_uint_t                 i, n;
+    SSL_CREDENTIAL            *cred;
+    STACK_OF(EVP_PKEY)        *pkeys;
+    STACK_OF(SSL_CREDENTIAL)  *creds;
+
+    pkeys = sk_EVP_PKEY_new_null();
+    creds = sk_SSL_CREDENTIAL_new_null();
+
+    if (pkeys == NULL || creds == NULL) {
+        goto failed;
+    }
+
+    /*
+     * The keys are loaded through the certificate cache, so that "data:"
+     * and "engine:" keys, and ssl_password_file, work here as they do for
+     * the ssl_certificate_key directive.  They form a pool: each chain is
+     * matched to the key for its own leaf, so one key may serve several
+     * chains, and a chain carrying its own key needs no entry here.
+     */
+
+    if (keys != NULL) {
+        key = keys->elts;
+
+        for (i = 0; i < keys->nelts; i++) {
+            pkey = ngx_ssl_cache_fetch(cf, NGX_SSL_CACHE_PKEY, &err, &key[i],
+                                       passwords);
+            if (pkey == NULL) {
+                if (err != NULL) {
+                    ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
+                                  "cannot load certificate key \"%s\": %s",
+                                  key[i].data, err);
+                }
+
+                goto failed;
+            }
+
+            if (sk_EVP_PKEY_push(pkeys, pkey) == 0) {
+                EVP_PKEY_free(pkey);
+                goto failed;
+            }
+        }
+    }
+
+    /*
+     * The chains are read here rather than through the certificate cache,
+     * which returns parsed certificates and would discard the CERTIFICATE
+     * PROPERTIES block carrying the trust anchor identifier.
+     */
+
+    cert = certs->elts;
+
+    for (i = 0; i < certs->nelts; i++) {
+
+        if (ngx_conf_full_name(cf->cycle, &cert[i], 1) != NGX_OK) {
+            goto failed;
+        }
+
+        bio = BIO_new_file((char *) cert[i].data, "r");
+        if (bio == NULL) {
+            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
+                          "BIO_new_file(\"%s\") failed", cert[i].data);
+            goto failed;
+        }
+
+        if (SSL_parse_certificates_with_properties(bio, pkeys, creds) == 0) {
+            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
+                          "SSL_parse_certificates_with_properties(\"%s\") "
+                          "failed", cert[i].data);
+            BIO_free(bio);
+            goto failed;
+        }
+
+        BIO_free(bio);
+    }
+
+    /*
+     * Credentials are served in the order they are added.  By default they
+     * are sorted by size, so that where more than one satisfies the client's
+     * request, the smallest is sent.  With "ssl_tai_certificate_preference
+     * config" they keep the configured order instead, which a file holding
+     * several chains uses to express its own order of preference.
+     */
+
+    if (preference == NGX_SSL_TAI_PREFERENCE_SIZE) {
+        sk_SSL_CREDENTIAL_set_cmp_func(creds, SSL_CREDENTIAL_size_cmp);
+        sk_SSL_CREDENTIAL_sort(creds);
+    }
+
+    n = sk_SSL_CREDENTIAL_num(creds);
+
+    for (i = 0; i < n; i++) {
+        cred = sk_SSL_CREDENTIAL_value(creds, i);
+
+        if (SSL_CTX_add1_credential(ssl->ctx, cred) == 0) {
+            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
+                          "SSL_CTX_add1_credential() failed");
+            goto failed;
+        }
+    }
+
+    sk_SSL_CREDENTIAL_pop_free(creds, SSL_CREDENTIAL_free);
+    sk_EVP_PKEY_pop_free(pkeys, EVP_PKEY_free);
+
+    return NGX_OK;
+
+failed:
+
+    sk_SSL_CREDENTIAL_pop_free(creds, SSL_CREDENTIAL_free);
+    sk_EVP_PKEY_pop_free(pkeys, EVP_PKEY_free);
+
+    return NGX_ERROR;
+}
+
+#endif
+
+
 ngx_int_t
 ngx_ssl_connection_certificate(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *cert, ngx_str_t *key, ngx_ssl_cache_t *cache,
